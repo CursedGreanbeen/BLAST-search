@@ -48,8 +48,8 @@ from Bio import SeqIO, Blast
 from anarci import anarci as _anarci_run
 
 
-DEFAULT_MIN_IDENTITY = 90.0
-DEFAULT_MAX_IDENTITY = 99.0
+DEFAULT_MIN_IDENTITY = 0.0
+DEFAULT_MAX_IDENTITY = 100.0
 DEFAULT_EVALUE = 10.0
 FASTA_EXTENSIONS = (".fasta", ".fa", ".faa")
 HEAVY_CHAIN_TYPES = {"H"}  # ANARCI chain_type label for heavy chains
@@ -381,15 +381,24 @@ def parse_and_filter_hits(
                     }
 
                     if cdr_h3_start is not None and cdr_h3_end is not None:
-                        # NEW PATH: filter by CDR-H3-restricted identity instead
-                        # of whole-chain identity.
+                        # Filter by CDR-H3-restricted identity AND whole-chain identity.
+                        # OLD BEHAVIOR (whole-chain + H3 filtering):
+                        #   if not (min_h3_identity <= h3_info["h3_pct_identity"] <= max_h3_identity):
+                        #       continue  # H3 identity outside range
+                        #   if not (min_identity <= pct_identity <= max_identity):
+                        #       continue  # Whole-chain identity outside range
+                        #   filtered.append({**base_row, **h3_info})
+                        #
+                        # NEW BEHAVIOR (CDR-H3-only filtering):
+                        #   Only filter by CDR-H3 identity, ignore whole-chain identity.
+                        #   To revert: uncomment the 3 lines above and remove the 2 lines below.
                         h3_info = compute_h3_identity(hsp, cdr_h3_start, cdr_h3_end)
                         if not h3_info["h3_covered"]:
                             continue  # HSP doesn't span CDR-H3, can't judge it
                         if not (min_h3_identity <= h3_info["h3_pct_identity"] <= max_h3_identity):
-                            continue
+                            continue  # H3 identity outside range
+                        # NOTE: whole-chain identity check removed for CDR-only comparison
                         filtered.append({**base_row, **h3_info})
-
     except Exception as exc:
         log(f"ERROR: failed to parse {xml_path}: {exc}")
     return filtered
