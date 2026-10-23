@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
 CLI entry point for local BLASTP + ANARCI CDR-H3 batch search.
-See blast_pdb_search_local.py for the underlying implementation.
+
+Implementation lives across:
+  - fasta_io.py       (FASTA parsing / sequence dedup)
+  - anarci_utils.py   (ANARCI CDR-H3 extraction)
+  - blast_runner.py   (blastp execution)
+  - h3_matching.py    (CDR-H3 hit filtering, via normalize_cdr_h3_length)
+  - logging_utils.py  (shared log())
 """
 
 import argparse
@@ -12,26 +18,24 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from blast_pdb_search_local import (
-    log,
+from logging_utils import log
+from fasta_io import collect_unique_sequences
+from anarci_utils import check_anarci, run_anarci
+from blast_runner import (
     find_blastp,
     check_database,
-    check_anarci,
-    collect_unique_sequences,
     run_single_blastp,
-    run_anarci,
-    parse_and_filter_hits,
     DEFAULT_MIN_IDENTITY,
     DEFAULT_MAX_IDENTITY,
     DEFAULT_EVALUE,
-    DEFAULT_MIN_H3_IDENTITY,
-    DEFAULT_MAX_H3_IDENTITY,
 )
+from h3_matching import parse_and_filter_hits
 
 CSV_FIELDNAMES = [
     "source_file", "chain_id", "hit_id", "hit_description",
     "pct_identity", "identity", "align_length", "evalue", "bit_score",
     "h3_covered", "h3_identity", "h3_align_length", "h3_pct_identity",
+    "query_h3", "hit_h3",
 ]
 
 
@@ -60,14 +64,6 @@ def main():
     parser.add_argument(
         "--max-identity", type=float, default=DEFAULT_MAX_IDENTITY,
         help=f"Maximum percent identity to keep a hit (default: {DEFAULT_MAX_IDENTITY})"
-    )
-    parser.add_argument(
-        "--min-h3-identity", type=float, default=DEFAULT_MIN_H3_IDENTITY,
-        help=f"Minimum CDR-H3 percent identity to keep a hit (default: {DEFAULT_MIN_H3_IDENTITY})"
-    )
-    parser.add_argument(
-        "--max-h3-identity", type=float, default=DEFAULT_MAX_H3_IDENTITY,
-        help=f"Maximum CDR-H3 percent identity to keep a hit (default: {DEFAULT_MAX_H3_IDENTITY})"
     )
     parser.add_argument(
         "--require-h3", action="store_true",
@@ -190,8 +186,6 @@ def main():
                 args.min_identity, args.max_identity,
                 cdr_h3_start=h3_info["cdr_h3_start"],
                 cdr_h3_end=h3_info["cdr_h3_end"],
-                min_h3_identity=args.min_h3_identity,
-                max_h3_identity=args.max_h3_identity,
             )
 
             # Collect PDB IDs for this CDR-H3 sequence
